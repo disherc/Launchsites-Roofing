@@ -42,7 +42,6 @@
 
     <!-- 4. FIREBASE SETUP (Module Script) -->
     <script type="module">
-        // This block attempts to load Firebase but won't crash if keys are missing
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
@@ -58,7 +57,7 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        // --- INLINE ICONS (To prevent loading errors) ---
+        // --- INLINE ICONS ---
         const Icons = {
             CheckCircle: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>,
             MapPin: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>,
@@ -114,6 +113,60 @@
                 </span>
             </div>
         );
+
+        // --- MODAL COMPONENT (FOR TOS/PRIVACY) ---
+        const Modal = ({ isOpen, onClose, title, content }) => {
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-50 z-[100] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-lg max-w-2xl w-full max-h-[80vh] overflow-y-auto shadow-2xl">
+                        <div className="p-6 border-b flex justify-between items-center sticky top-0 bg-white">
+                            <h3 className="text-xl font-bold">{title}</h3>
+                            <button onClick={onClose}><X className="w-6 h-6"/></button>
+                        </div>
+                        <div className="p-6 whitespace-pre-wrap text-sm text-gray-600">
+                            {content}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- LEGAL CONTENT ---
+        const TERMS_CONTENT = `TERMS OF SERVICE
+
+1. Acceptance of Terms
+By accessing LaunchSites, you agree to be bound by these Terms of Service.
+
+2. Services Provided
+LaunchSites provides website design and hosting services for roofing contractors. Services include template customization, hosting setup, and domain connection.
+
+3. Payments
+A one-time setup fee is charged to initiate the project. A monthly recurring fee is charged for hosting, SSL, and maintenance.
+
+4. Termination
+You may cancel your monthly subscription at any time. Upon cancellation, your website hosting will be terminated at the end of the billing cycle.
+
+5. Intellectual Property
+The website design template remains the property of LaunchSites until the setup fee is paid in full.`;
+
+        const PRIVACY_CONTENT = `PRIVACY POLICY
+
+1. Information Collection
+We collect personal information such as name, email, phone number, and business details to provide our services.
+
+2. Use of Information
+Your information is used to:
+- Build and customize your website.
+- Process payments.
+- Communicate regarding your project.
+
+3. Data Protection
+We implement security measures to maintain the safety of your personal information. We do not sell your data to third parties.
+
+4. Contact
+For any privacy concerns, please contact support@launchsites.ca.`;
+
 
         // --- TEMPLATE COMPONENT ---
         const RoofingTemplate = ({ onClose, customData, territoryCity }) => {
@@ -322,20 +375,34 @@
             const [formStep, setFormStep] = useState(1);
             const [submissionStatus, setSubmissionStatus] = useState("Initializing...");
             const [submitError, setSubmitError] = useState("");
+            
+            // MODAL STATE
+            const [isTermsOpen, setIsTermsOpen] = useState(false);
+            const [isPrivacyOpen, setIsPrivacyOpen] = useState(false);
+
             const [formData, setFormData] = useState({
                 businessName: '', phone: '', email: '', address: '', city: 'Calgary', googleMapLink: '',
                 services: { residential: true, commercial: false, repair: true, gutters: false },
                 primaryColor: 'bg-red-700'
             });
 
-            // --- 0. INIT EMAILJS & FIREBASE (SAFE) ---
+            const [user, setUser] = useState(null);
+
+            // --- 0. SEO: UPDATE PAGE TITLE DYNAMICALLY ---
+            useEffect(() => {
+                document.title = `Attention ${city} Roofers | LaunchSites`;
+                const metaDesc = document.querySelector('meta[name="description"]');
+                if (metaDesc) {
+                    metaDesc.setAttribute("content", `Dominate the ${city} roofing market with a pre-built, high-conversion website. Only 1 license available per city.`);
+                }
+            }, [city]);
+
+            // --- 1. INIT EMAILJS & FIREBASE (SAFE) ---
             useEffect(() => {
                 if (window.emailjs) {
-                    // Replace with your public key if not using variables
-                    window.emailjs.init("YOUR_PUBLIC_KEY"); 
+                    window.emailjs.init("A8840285-9551-497b-b9a9-2d6a27c78250"); 
                 }
                 
-                // Init Firebase Auth if available
                 if (window.firebaseModules && window.firebaseModules.getAuth) {
                     try {
                         const auth = window.firebaseModules.getAuth();
@@ -343,13 +410,23 @@
                     } catch(e) { console.log("Firebase Auth skipped"); }
                 }
                 
-                // --- URL PARAMETER HANDLING ---
                 const params = new URLSearchParams(window.location.search);
                 if (params.get('city')) {
                     setCity(params.get('city'));
                     if (params.get('mode') !== 'view') {
                         setFormData(prev => ({ ...prev, city: params.get('city') }));
                     }
+                } else {
+                    // GEO-LOCATION FALLBACK
+                    fetch('https://ipapi.co/json/')
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data && data.city) {
+                                setCity(data.city);
+                                setFormData(prev => ({ ...prev, city: data.city }));
+                            }
+                        })
+                        .catch(err => console.log("Geo-location failed, using default"));
                 }
 
                 if (params.get('mode') === 'view' && params.get('businessName')) {
@@ -370,7 +447,6 @@
             const handleInputChange = (e) => setFormData({...formData, [e.target.name]: e.target.value});
             const handleColorSelect = (colorClass) => setFormData({...formData, primaryColor: colorClass});
 
-            // --- 3. SUBMIT TO WEB3FORMS (PRIORITIZING EMAIL) ---
             const handleSecureSite = async () => {
                 setViewMode('processing');
                 setSubmissionStatus("Generating Magic Link...");
@@ -392,14 +468,13 @@
                 const magicLink = `${baseUrl}?${params}`;
 
                 try {
-                    // A. SEND EMAIL (Web3Forms)
                     setSubmissionStatus("Sending Email Notification...");
                     
                     const emailData = {
                         access_key: "a8840285-9551-497b-b9a9-2d6a27c78250", 
                         subject: `NEW ORDER: ${formData.city || city} - ${formData.businessName}`,
                         from_name: "LaunchSites",
-                        email: formData.email, // Reply-To
+                        email: formData.email, 
                         replyto: formData.email, 
                         message: `NEW SITE APPLICATION RECEIVED\n\nCLIENT DETAILS:\nCity: ${formData.city || city}\nBusiness: ${formData.businessName}\nPhone: ${formData.phone}\nEmail: ${formData.email}\nAddress: ${formData.address}\n\nMAGIC PREVIEW LINK:\n${magicLink}\n\nACTION REQUIRED:\n1. Reply to client.\n2. Confirm details.\n3. Send invoice.`
                     };
@@ -410,8 +485,7 @@
                         body: JSON.stringify(emailData),
                     });
 
-                    // B. SAVE TO DB (If configured)
-                    if (window.firebaseModules) {
+                    if (window.firebaseModules && window.firebaseModules.getFirestore) {
                         try {
                             const { collection, addDoc, serverTimestamp, getFirestore } = window.firebaseModules;
                             const db = getFirestore();
@@ -426,7 +500,6 @@
                 } catch (error) {
                     console.error("Critical Error:", error);
                     setSubmitError("Network Error. Please try again.");
-                    // Fallback to success so user isn't stuck
                     setTimeout(() => setViewMode('success'), 2000); 
                 }
             };
@@ -438,10 +511,11 @@
                     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 font-sans">
                         <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-lg w-full text-center animate-fadeIn">
                             <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6"><Check className="w-12 h-12 text-green-600" /></div>
-                            <h2 className="text-3xl font-black text-slate-900 mb-2">You Are Locked In!</h2>
-                            <p className="text-slate-600 mb-6">We have successfully reserved the <b>{formData.city || city}</b> territory for your business.</p>
+                            <h2 className="text-3xl font-black text-slate-900 mb-2">Step 1 Complete!</h2>
+                            <p className="text-slate-600 mb-6">Our developers are now configuring your domain and finalizing your site.</p>
                             <div className="bg-blue-50 border border-blue-100 p-6 rounded-lg mb-8 text-left space-y-4">
-                                <div className="flex items-start"><Mail className="w-5 h-5 text-blue-600 mr-3 mt-0.5 flex-shrink-0"/><div><h4 className="font-bold text-blue-900">Email Confirmation Sent</h4><p className="text-sm text-blue-700">We have sent a receipt to <b>{formData.email}</b>. Use the link inside to view your site.</p></div></div>
+                                <div className="flex items-start"><Mail className="w-5 h-5 text-blue-600 mr-3 mt-0.5 flex-shrink-0"/><div><h4 className="font-bold text-blue-900">Check Your Email</h4><p className="text-sm text-blue-700">We have sent a confirmation receipt to <b>{formData.email}</b>.</p></div></div>
+                                <div className="flex items-start"><Server className="w-5 h-5 text-blue-600 mr-3 mt-0.5 flex-shrink-0"/><div><h4 className="font-bold text-blue-900">What Happens Next?</h4><p className="text-sm text-blue-700">Within 24 hours, we will send you a <b>Live Preview Link</b>. Once you approve it, we handle the billing and go live instantly.</p></div></div>
                             </div>
                             <button onClick={() => setViewMode('demo')} className="w-full bg-orange-600 hover:bg-orange-700 text-white font-black text-xl py-4 rounded-lg shadow-lg flex items-center justify-center transform hover:scale-[1.02] transition-all">PREVIEW YOUR SITE <ArrowRight className="ml-2 w-6 h-6"/></button>
                         </div>
@@ -469,7 +543,7 @@
                     </div>
 
                     <div className="bg-orange-600 text-white text-center py-3 text-sm font-bold px-4 shadow-md sticky top-[72px] z-40">
-                        <div className="flex items-center justify-center animate-pulse"><AlertTriangle className="w-4 h-4 mr-2 text-white" fill="currentColor" stroke="none" /><span>ATTENTION {city.toUpperCase()} CONTRACTORS: Launch Pricing Ending Soon.</span></div>
+                        <div className="flex items-center justify-center animate-pulse"><AlertTriangle className="w-4 h-4 mr-2 text-white" fill="currentColor" stroke="none" /><span>Attention {city.toUpperCase()} Roofers</span></div>
                     </div>
 
                     <div className="bg-slate-900 text-white pt-16 pb-40 relative overflow-hidden">
@@ -477,8 +551,10 @@
                         <div className="max-w-6xl mx-auto px-4 grid md:grid-cols-2 gap-16 items-center relative z-10">
                             <div>
                                 <div className="inline-flex items-center bg-slate-800 border border-slate-700 rounded px-4 py-2 mb-8 shadow-sm"><span className="w-2 h-2 rounded-full bg-green-500 mr-2 animate-pulse"></span><span className="text-xs font-bold text-slate-300 uppercase tracking-widest">Current Status: <span className="text-white">ACCEPTING NEW CLIENTS</span></span></div>
-                                <h1 className="text-5xl md:text-7xl font-black leading-[1.1] mb-6 tracking-tight">Dominate The <br/><span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-yellow-500">{city} Market</span>.</h1>
-                                <p className="text-xl text-slate-300 mb-10 max-w-lg leading-relaxed border-l-4 border-orange-600 pl-6">Claim the only pre-built, SEO-optimized roofing website tailored specifically for {city}. Go live in 24 hours.</p>
+                                <h1 className="text-5xl md:text-7xl font-black leading-[1.1] mb-6 tracking-tight">Attention <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-yellow-500">{city}</span> Roofers</h1>
+                                <h2 className="text-2xl md:text-3xl font-bold text-slate-300 mb-6">We build websites that will help you dominate the <span className="text-orange-500">{city}</span> market.</h2>
+                                <p className="text-xl text-slate-400 mb-8 max-w-lg leading-relaxed border-l-4 border-orange-600 pl-6">Fill out the form below to claim the only SEO/GEO optimized site optimized for roofing companies in {city}.</p>
+                                <div className="flex items-center mb-8"><span className="bg-green-500 text-black text-xs font-bold px-3 py-1 rounded-full animate-pulse mr-3">LIVE</span> <p className="text-lg font-bold text-green-400">Go live in 24hrs!</p></div>
                             </div>
                             <div className="relative group perspective-1000">
                                 <div className="absolute -inset-4 bg-orange-600/30 blur-2xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-700"></div>
@@ -547,10 +623,18 @@
                     </div>
 
                     <footer className="bg-white py-12 text-center text-slate-500 text-sm border-t border-slate-100">
-                        <div className="flex justify-center mb-4 opacity-50 grayscale hover:grayscale-0 transition-all"><LaunchsitesLogo /></div>
+                        <div className="flex justify-center mb-6 opacity-50 grayscale hover:grayscale-0 transition-all"><LaunchsitesLogo /></div>
+                        <div className="flex justify-center space-x-6 mb-6">
+                            <button onClick={() => setIsTermsOpen(true)} className="hover:text-orange-600 transition-colors">Terms of Service</button>
+                            <button onClick={() => setIsPrivacyOpen(true)} className="hover:text-orange-600 transition-colors">Privacy Policy</button>
+                        </div>
                         <p>© 2025 Launchsites. All rights reserved.</p>
                         <p className="mt-2">This offer is limited to one contractor per city.</p>
                     </footer>
+                    
+                    {/* MODALS */}
+                    <Modal isOpen={isTermsOpen} onClose={() => setIsTermsOpen(false)} title="Terms of Service" content={TERMS_CONTENT} />
+                    <Modal isOpen={isPrivacyOpen} onClose={() => setIsPrivacyOpen(false)} title="Privacy Policy" content={PRIVACY_CONTENT} />
                 </div>
             );
         };
